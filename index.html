@@ -20,7 +20,28 @@ function mic(){
   r.start();
  }catch(e){rec=null;tell('Start fehlgeschlagen. Bitte Mikrofonzugriff erlauben und erneut versuchen.')}
 }
-function check(){let a=scenarios[topic].steps[step],typed=document.querySelector('#answer').value.trim();let normalized=clean(typed),example=clean(a[3]);const similar=normalized===example;document.querySelector('#feedback').innerHTML=`<div class="result"><b>Eine natürliche Antwort wäre:</b><p lang="fr" style="font-size:21px">${escapeHtml(a[3])}</p><button class="speaker" onclick="speak(scenarios[topic].steps[step][3])">🔊 Anhören</button> <button class="speaker" onclick="speak(scenarios[topic].steps[step][3],true)">🐢 Langsam</button><p class="hint">${similar?'Dein Satz entspricht dem Beispiel.':'Andere Formulierungen können richtig sein. Die Webseite bietet keine automatische Grammatikbewertung.'}</p><b>Konntest du dich verständlich ausdrücken?</b><div class="row"><button class="btn green" onclick="finishStep(true)">✓ Ja, weiter</button><button class="btn alt" onclick="finishStep(false)">↻ Noch üben</button></div></div>`}
+function assessAnswer(text,example){
+ const words=x=>clean(x).split(/\s+/).filter(w=>w.length>2);
+ const got=words(text),ref=words(example);
+ if(!got.length)return {label:'Noch keine Antwort',tone:'warn',detail:'Sprich zuerst eine Antwort ein oder tippe sie.'};
+ const overlap=ref.filter(w=>got.includes(w)).length/Math.max(ref.length,1);
+ const lengthRatio=Math.min(got.length/ref.length,ref.length/got.length);
+ if(clean(text)===clean(example)||overlap>.75&&lengthRatio>.65)return {label:'Sieht gut aus ✓',tone:'ok',detail:'Deine Antwort ähnelt der Musterantwort stark. Andere Formulierungen können ebenfalls richtig sein.'};
+ if(overlap>.35)return {label:'Teilweise passend',tone:'warn',detail:'Du hast wichtige Elemente der Musterantwort getroffen. Prüfe Wortwahl und Satzbau.'};
+ return {label:'Noch einmal vergleichen',tone:'warn',detail:'Deine Antwort unterscheidet sich von der Musterantwort. Sie kann trotzdem richtig sein – diese einfache Prüfung erkennt freie Formulierungen nur eingeschränkt.'};
+}
+function check(){
+ let a=scenarios[topic].steps[step],el=document.querySelector('#answer'),typed=el.value.trim();
+ if(!typed){document.querySelector('#micStatus').textContent='Bitte sprich zuerst deine Antwort oder tippe sie ein.';return}
+ const result=assessAnswer(typed,a[3]);
+ document.querySelector('#feedback').innerHTML=`<div class="result ${result.tone==='warn'?'warn':''}"><h3>Empfehlung: ${result.label}</h3><p>${result.detail}</p><p><b>Deine Antwort:</b> ${escapeHtml(typed)}</p><b>Eine mögliche natürliche Antwort:</b><p lang="fr" style="font-size:21px">${escapeHtml(a[3])}</p><button class="speaker" onclick="speak(scenarios[topic].steps[step][3])">🔊 Beispiel anhören</button> <button class="speaker" onclick="speak(scenarios[topic].steps[step][3],true)">🐢 Langsam</button><p class="hint">Hinweis: Dies ist ein Wortvergleich, keine verlässliche KI-Grammatikprüfung. Du entscheidest, ob deine Antwort sinnvoll und korrekt war.</p><b>Kannst du diese Antwort bereits?</b><div class="row"><button class="btn green" onclick="finishStep(true)">✓ Ja, ich kann es – weiter</button><button class="btn alt" onclick="retryStep()">↻ Nein, gleiche Frage wiederholen</button></div></div>`;
+}
+function retryStep(){
+ let key=topic+'-'+step;
+ if(!db.missed.some(m=>m.key===key))db.missed.push({key,topic,step});
+ persist();render();
+ document.querySelector('#micStatus').textContent='Gleiche Frage: Höre sie erneut an und antworte noch einmal laut.';
+}
 function finishStep(ok){let a=scenarios[topic].steps[step];db.phrases++;streak();if(!ok&&!db.missed.some(x=>x.key===topic+'-'+step))db.missed.push({key:topic+'-'+step,topic,step});if(ok)db.missed=db.missed.filter(x=>x.key!==topic+'-'+step);step++;if(step===scenarios[topic].steps.length){db.sessions++;completed=true}persist();render()}
 function phrases(){let index=Number(sessionStorage.getItem('phraseIndex')||0)%chunks.length,x=chunks[index];return `<div class="eyebrow">Satzbausteine ${index+1}/${chunks.length}</div><h2>Ganze Sätze schneller bilden</h2><div class="prompt" lang="fr">${escapeHtml(x[0])} <button class="speaker" onclick="speak(chunks[${index}][0])">🔊</button></div><p>${escapeHtml(x[1])}</p><h3>Beispiel</h3><p lang="fr">${escapeHtml(x[2])} <button class="speaker" onclick="speak(chunks[${index}][2])">🔊</button></p><p>Formuliere jetzt laut einen eigenen Satz mit diesem Ausdruck.</p><textarea class="entry" placeholder="Mein eigener Satz…"></textarea><div class="row"><button class="btn" onclick="sessionStorage.setItem('phraseIndex',${index+1});go('phrases')">Nächster Ausdruck →</button><button class="btn alt" onclick="sessionStorage.setItem('phraseIndex',${index+chunks.length-1});go('phrases')">Zurück</button></div>`}
 function review(){if(!db.missed.length)return `<div class="eyebrow">Wiederholen</div><h2>Alles im grünen Bereich ✅</h2><p>Markiere im Dialog eine Antwort mit „Noch üben“, damit sie hier landet.</p><button class="btn" onclick="go('topics')">Dialoge auswählen</button>`;return `<div class="eyebrow">Deine Wiederholungen</div><h2>Schwierige Antworten wiederholen</h2><p class="hint">Du bestimmst, was du noch üben möchtest.</p><div class="gridopt">${db.missed.map(m=>`<button class="option" onclick="openTopic(${m.topic});step=${m.step};render()">${escapeHtml(scenarios[m.topic].title)} · ${escapeHtml(scenarios[m.topic].steps[m.step][2])} →</button>`).join('')}</div>`}
